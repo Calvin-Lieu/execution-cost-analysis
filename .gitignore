@@ -1,0 +1,52 @@
+# Python virtual environment
+.venv/
+venv/
+env/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Testing and coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Type-checking and linting caches
+.mypy_cache/
+.ruff_cache/
+.pyright/
+
+# Package/build output
+build/
+dist/
+*.egg-info/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Generated datasets and experiment results
+data/raw/
+data/processed/
+results/
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Temporary files
+*.log
+*.tmp
+*.swp
