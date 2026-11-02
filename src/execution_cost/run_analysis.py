@@ -14,9 +14,14 @@ from execution_cost.monte_carlo import (
 from execution_cost.plotting import (
     plot_completion_rates,
     plot_mean_shortfall,
+    plot_paired_improvements,
     plot_shortfall_distribution,
 )
 from execution_cost.simulator import ExecutionConfig
+
+from execution_cost.paired_analysis import (
+    paired_strategy_comparison,
+)
 
 
 def main() -> None:
@@ -58,6 +63,16 @@ def main() -> None:
 
     summary = aggregate_monte_carlo(trials)
 
+    paired_comparisons = paired_strategy_comparison(
+        trials,
+        baseline="TWAP",
+    )
+
+    plot_paired_improvements(
+        paired_comparisons,
+        output_directory / "paired_improvements.png",
+    )
+
     trials.to_csv(
         output_directory / "trials.csv",
         index=False,
@@ -65,6 +80,11 @@ def main() -> None:
 
     summary.to_csv(
         output_directory / "summary.csv",
+        index=False,
+    )
+
+    paired_comparisons.to_csv(
+        output_directory / "paired_comparisons.csv",
         index=False,
     )
 
@@ -86,6 +106,20 @@ def main() -> None:
     print("\nExecution strategy summary:\n")
     print(summary.round(4).to_string(index=False))
 
+    print("\nPaired comparisons against TWAP:\n")
+    print(
+        paired_comparisons[
+            [
+                "regime",
+                "comparison",
+                "mean_shortfall_improvement_bps",
+                "ci95_lower_bps",
+                "ci95_upper_bps",
+                "win_rate",
+                "mean_completion_delta",
+            ]
+        ].round(4).to_string(index=False)
+    )
     print(f"\nResults written to: {output_directory.resolve()}")
 
 
