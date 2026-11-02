@@ -102,3 +102,43 @@ def vwap_schedule(
         allocated_quantity += quantity
 
     return tuple(children)
+
+def pov_schedule(
+    parent: ParentOrder,
+    snapshots: Sequence[MarketSnapshot],
+    participation_rate: float,
+) -> tuple[ChildOrder, ...]:
+    if (
+        not math.isfinite(participation_rate)
+        or participation_rate <= 0
+        or participation_rate > 1
+    ):
+        raise ValueError("Participation rate must be within (0, 1]")
+
+    eligible = snapshots_in_order_window(parent, snapshots)
+
+    children: list[ChildOrder] = []
+    remaining_quantity = parent.quantity
+
+    for snapshot in eligible:
+        if remaining_quantity <= 0:
+            break
+
+        target_quantity = participation_rate * snapshot.market_volume
+        child_quantity = min(target_quantity, remaining_quantity)
+
+        # No order is submitted during an interval with no market volume.
+        if child_quantity <= 0:
+            continue
+
+        children.append(
+            ChildOrder(
+                parent_order_id=parent.order_id,
+                timestamp=snapshot.timestamp,
+                quantity=child_quantity,
+            )
+        )
+
+        remaining_quantity -= child_quantity
+
+    return tuple(children)

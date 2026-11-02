@@ -2,19 +2,22 @@ import pandas as pd
 import pytest
 
 from execution_cost.models import MarketSnapshot, ParentOrder, Side
-from execution_cost.strategies import twap_schedule, vwap_schedule
+from execution_cost.strategies import twap_schedule, vwap_schedule, pov_schedule
 
 START = pd.Timestamp("2026-01-05 10:00:00")
 
 
-def make_snapshot(minute: int) -> MarketSnapshot:
+def make_snapshot(
+    minute: int,
+    volume: float = 1_000,
+) -> MarketSnapshot:
     return MarketSnapshot(
         timestamp=START + pd.Timedelta(minutes=minute),
         bid_price=99.99,
         ask_price=100.01,
-        market_volume=1_000,
-        bid_depth=500,
-        ask_depth=500,
+        market_volume=volume,
+        bid_depth=10_000,
+        ask_depth=10_000,
         volatility=0.01,
     )
 
@@ -215,4 +218,85 @@ def test_vwap_rejects_invalid_weights(weights: list[float]) -> None:
             parent=parent,
             snapshots=snapshots,
             expected_volume_weights=weights,
+        )
+
+def test_pov_targets_percentage_of_market_volume() -> None:
+    parent = make_parent(quantity=1_000)
+
+    snapshots = [
+        make_snapshot(0, volume=1_000),
+        make_snapshot(5, volume=2_000),
+        make_snapshot(10, volume=1_000),
+    ]
+
+    children = pov_schedule(
+        parent=parent,
+        snapshots=snapshots,
+        participation_rate=0.10,
+    )
+
+    assert [child.quantity for child in children] == pytest.approx(
+        [100, 200, 100]
+    )
+
+
+def test_pov_never_exceeds_parent_quantity() -> None:
+    parent = make_parent(quantity=150)
+
+    snapshots = [
+        make_snapshot(0, volume=1_000),
+        make_snapshot(5, volume=1_000),
+        make_snapshot(10, volume=1_000),
+    ]
+
+    children = pov_schedule(
+        parent=parent,
+        snapshots=snapshots,
+        participation_rate=0.10,
+    )
+
+    assert [child.quantity for child in children] == pytest.approx(
+        [100, 50]
+    )
+
+    assert sum(child.quantity for child in children) == pytest.approx(150)
+
+
+def test_pov_skips_zero_volume_intervals() -> None:
+    parent = make_parent(quantity=1_000)
+
+    snapshots = [
+        make_snapshot(0, volume=1_000),
+        make_snapshot(5, volume=0),
+        make_snapshot(10, volume=2_000),
+    ]
+
+    children = pov_schedule(
+        parent=parent,
+        snapshots=snapshots,
+        participation_rate=0.10,
+    )
+
+    assert [child.quantity for child in children] == pytest.approx(
+        [100, 200]
+    )
+
+    assert [child.timestamp for child in children] == [
+        START,
+        START + pd.Timedelta(minutes=10),
+    ]
+
+
+@pytest.mark.parametrize(
+    "participation_rate",
+    [0, -0.1, 1.1, float("nan"), float("inf")],
+)
+def test_pov_rejects_invalid_participation_rate(
+    participation_rate: float,
+) -> None:
+    with pytest.raises(ValueError, match="within"):
+        pov_schedule(
+            parent=make_parent(),
+            snapshots=[make_snapshot(0)],
+            participation_rate=participation_rate,
         )
