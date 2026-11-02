@@ -93,7 +93,7 @@ POV’s trending-market advantage should be interpreted as an urgency effect: at
 Python 3.10 or later is recommended.
 
 ```bash
-git clone 
+git clone https://github.com/Calvin-Lieu/execution-cost-analysis.git
 cd execution-cost-analysis
 
 python3 -m venv .venv
