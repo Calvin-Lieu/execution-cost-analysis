@@ -22,14 +22,19 @@ END = pd.Timestamp("2026-01-01 11:00:00", tz="UTC")
 
 
 def make_snapshot(
-    *,
     market_volume: float = 10_000,
     bid_depth: float = 5_000,
     ask_depth: float = 5_000,
     volatility: float = 0.001,
+    minute: int = 0,
+    volume: float | None = None,
 ) -> MarketSnapshot:
+    # "volume" is a convenient alias used by the schedule tests.
+    if volume is not None:
+        market_volume = volume
+
     return MarketSnapshot(
-        timestamp=START,
+        timestamp=START + pd.Timedelta(minutes=minute),
         bid_price=99.99,
         ask_price=100.01,
         market_volume=market_volume,
@@ -39,13 +44,16 @@ def make_snapshot(
     )
 
 
-def make_parent(side: Side = Side.BUY) -> ParentOrder:
+def make_parent(
+    side: Side = Side.BUY,
+    quantity: float = 100.0,
+) -> ParentOrder:
     return ParentOrder(
         order_id="order-1",
         side=side,
-        quantity=10_000,
+        quantity=quantity,
         start_time=START,
-        end_time=END,
+        end_time=START + pd.Timedelta(minutes=15),
     )
 
 
@@ -215,4 +223,95 @@ def test_wrong_parent_order_is_rejected() -> None:
             child,
             snapshot,
             ExecutionConfig(),
+        )
+
+from execution_cost.strategies import twap_schedule
+from execution_cost.simulator import ExecutionConfig, simulate_schedule
+
+
+def test_simulate_twap_schedule_fills_entire_order() -> None:
+    parent = make_parent(quantity=1_000)
+
+    snapshots = [
+        make_snapshot(minute=0, volume=1_000),
+        make_snapshot(minute=5, volume=1_000),
+        make_snapshot(minute=10, volume=1_000),
+        make_snapshot(minute=15, volume=1_000),
+    ]
+
+    children = twap_schedule(parent, snapshots)
+
+    result = simulate_schedule(
+        parent=parent,
+        child_orders=children,
+        snapshots=snapshots,
+        config=ExecutionConfig(
+            max_participation_rate=1.0,
+            impact_coefficient=0.0,
+            fee_per_unit=0.001,
+        ),
+    )
+
+    assert result.filled_quantity == pytest.approx(1_000)
+    assert result.unfilled_quantity == pytest.approx(0)
+    assert result.completion_rate == pytest.approx(1.0)
+    assert len(result.fills) == 4
+
+
+def test_simulate_twap_schedule_can_be_partially_filled() -> None:
+    parent = make_parent(quantity=1_000)
+
+    snapshots = [
+        make_snapshot(minute=0, volume=1_000),
+        make_snapshot(minute=5, volume=1_000),
+        make_snapshot(minute=10, volume=1_000),
+        make_snapshot(minute=15, volume=1_000),
+    ]
+
+    children = twap_schedule(parent, snapshots)
+
+    result = simulate_schedule(
+        parent=parent,
+        child_orders=children,
+        snapshots=snapshots,
+        config=ExecutionConfig(
+            max_participation_rate=0.10,
+            impact_coefficient=0.0,
+            fee_per_unit=0.0,
+        ),
+    )
+
+    # Each interval requests 250, but only 10% of 1,000 is available.
+    assert result.filled_quantity == pytest.approx(400)
+    assert result.unfilled_quantity == pytest.approx(600)
+    assert result.completion_rate == pytest.approx(0.4)
+
+
+def test_simulate_schedule_rejects_missing_snapshot() -> None:
+    parent = make_parent(quantity=1_000)
+    scheduling_snapshots = [
+        make_snapshot(minute=0, volume=1_000),
+        make_snapshot(minute=5, volume=1_000),
+    ]
+
+    children = twap_schedule(parent, scheduling_snapshots)
+
+    with pytest.raises(ValueError, match="No market snapshot"):
+        simulate_schedule(
+            parent=parent,
+            child_orders=children,
+            snapshots=[scheduling_snapshots[0]],
+        )
+
+
+def test_simulate_schedule_rejects_duplicate_snapshots() -> None:
+    parent = make_parent(quantity=1_000)
+    snapshot = make_snapshot(minute=0, volume=1_000)
+    children = twap_schedule(parent, [snapshot])
+
+    with pytest.raises(ValueError, match="unique"):
+        simulate_schedule(
+            parent=parent,
+            child_orders=children,
+            snapshots=[snapshot, snapshot],
         )

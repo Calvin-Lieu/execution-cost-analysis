@@ -129,3 +129,58 @@ def simulate_fill(
         fee=fee,
     )
 
+from collections.abc import Sequence
+
+from execution_cost.models import (
+    ChildOrder,
+    ExecutionResult,
+    MarketSnapshot,
+    ParentOrder,
+)
+
+
+def simulate_schedule(
+    parent: ParentOrder,
+    child_orders: Sequence[ChildOrder],
+    snapshots: Sequence[MarketSnapshot],
+    config: ExecutionConfig | None = None,
+) -> ExecutionResult:
+    if config is None:
+        config = ExecutionConfig()
+
+    snapshot_by_timestamp: dict[object, MarketSnapshot] = {}
+
+    for snapshot in snapshots:
+        if snapshot.timestamp in snapshot_by_timestamp:
+            raise ValueError("Market snapshot timestamps must be unique")
+
+        snapshot_by_timestamp[snapshot.timestamp] = snapshot
+
+    fills = []
+
+    for child in child_orders:
+        if child.parent_order_id != parent.order_id:
+            raise ValueError("Child order belongs to a different parent order")
+
+        snapshot = snapshot_by_timestamp.get(child.timestamp)
+
+        if snapshot is None:
+            raise ValueError(
+                f"No market snapshot exists at {child.timestamp}"
+            )
+
+        fill = simulate_fill(
+            parent_order=parent,
+            child_order=child,
+            snapshot=snapshot,
+            config=config,
+        )
+
+        # A zero-liquidity interval may produce no fill.
+        if fill is not None:
+            fills.append(fill)
+
+    return ExecutionResult(
+        parent_order=parent,
+        fills=tuple(fills),
+    )
