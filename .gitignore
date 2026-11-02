@@ -32,7 +32,6 @@ dist/
 # Generated datasets and experiment results
 data/raw/
 data/processed/
-results/
 
 # Environment variables and secrets
 .env
